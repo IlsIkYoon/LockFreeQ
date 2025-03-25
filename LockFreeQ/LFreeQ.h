@@ -1,11 +1,18 @@
 #pragma once
 #include <windows.h>
+#include <iostream>
 #include "LMemoryPool.h"
 
 #define MASKING_VALUE17BIT 0x00007fffffffffff
 #define LOG_MAXNUM 50'000'000
 #define ENQUEUE 0x00
 #define DEQUEUE 0x01
+#define BIT_64 64
+#define UNUSED_BIT 17
+#define BIT_OR_VALUE (BIT_64 - UNUSED_BIT)
+
+#define NEWNEXT_VALUE 0x0000000000000001
+
 
 extern unsigned long long g_SeqNum;
 
@@ -24,7 +31,7 @@ struct LogData
 	DWORD deleteCount;
 };
 
-extern LogData* g_logArr;
+extern LogData* logArr;
 
 
 template <typename T>
@@ -33,7 +40,7 @@ class LFreeQ
 	struct Node
 	{
 		T _data;
-		Node* next;
+		Node* _next;
 
 	};
 
@@ -47,14 +54,14 @@ public:
 
 	LFreeQ()
 	{
-		_head = _mPool.Alloc();
-		_head->next = nullptr;
+		_head = (Node*)_mPool.Alloc();
+		_head->_next = nullptr;
 		_head->_data = 0;
 		_tail = _head;
 		_size = 0;
 		_bitCount = 0;
 
-		g_logArr = (LogData*)malloc(sizeof(LogData) * LOG_MAXNUM);
+		logArr = (LogData*)malloc(sizeof(LogData) * LOG_MAXNUM);
 	}
 
 
@@ -71,40 +78,44 @@ public:
 		unsigned long long localBitCount;
 		DWORD myTID;
 
-		myTID = GetCurrentThreadId();
-
-		newNode = _mPool.Alloc();
-		newNode->_data = pData;
-		newNode->next = nullptr;
 
 		localBitCount = InterlockedIncrement(&_bitCount);
-		exchangeNode = (Node*)((ULONG_PTR)newNode | (localBitCount << (64 - 17))); //상위 17비트는 0일 거라는 가정 하에 진행
+		myTID = GetCurrentThreadId();
+
+		newNode = (Node*)_mPool.Alloc();
+		newNode->_data = pData;
+		newNode->_next = (Node*)NEWNEXT_VALUE;
+
+		exchangeNode = (Node*)((ULONG_PTR)newNode | (localBitCount << BIT_OR_VALUE)); //상위 17비트는 0일 거라는 가정 하에 진행
 
 
 
 		while (1)
 		{
 			localTail = _tail;
-			nextNode = localTail->next;
+			localTailAddress = (Node*)((ULONG_PTR)localTail & MASKING_VALUE17BIT);
+			nextNode = localTailAddress->_next;
 
-
-			if (InterlockedCompareExchange(&nextNode, newNode, nullptr) == nullptr)
+			if (InterlockedCompareExchangePointer((PVOID*) & localTailAddress->_next, exchangeNode, nullptr) == nextNode)
 			{
-				InterlockedCompareExchange(&_tail, newNode, localTop);
+				if (InterlockedCompareExchangePointer((PVOID*) & _tail, exchangeNode, localTail) != localTail)
+					__debugbreak();
+
+				newNode->_next = nullptr;
 				localSeqNum = InterlockedIncrement(&g_SeqNum);
-				localTailAddress = (Node*)((ULONG_PTR)localTail & MASKING_VALUE17BIT);
 
-				logArr[mySeqNum].seqNum = localSeqNum;
-				logArr[mySeqNum].TID = myTID;
-				logArr[mySeqNum].funcType = ENQUEUE;
-				logArr[mySeqNum].threadNext = (ULONG_PTR)exchangeNode;
-				logArr[mySeqNum].nodeNext = (ULONG_PTR)localTailAddress->_next;
-				logArr[mySeqNum].myAddress = (ULONG_PTR)localTail;
-				logArr[mySeqNum].createCount = ++(localTailAddress->_createCount); //todo// 노드에 없음
-				logArr[mySeqNum].deleteCount = localTailAddress->_deleteCount; //todo// 노드에 없음
+				
+				///*
+				logArr[localSeqNum].seqNum = localSeqNum;
+				logArr[localSeqNum].TID = myTID;
+				logArr[localSeqNum].funcType = ENQUEUE;
+				logArr[localSeqNum].threadNext = (ULONG_PTR)exchangeNode;
+				logArr[localSeqNum].nodeNext = (ULONG_PTR)localTailAddress->_next;
+				logArr[localSeqNum].myAddress = (ULONG_PTR)localTail;
+				//*/
 
 
-
+				
 				InterlockedIncrement(&_size);
 
 				break;
@@ -116,10 +127,22 @@ public:
 	T Dequeue()
 	{
 		Node* localHead;
+		Node* localHeadAddress;
 		Node* nextNode;
+		Node* nextNodeAddress;
 		T retval;
 		unsigned long long localSeqNum;
 		DWORD myTID;
+		
+		long long localSize = (long long)InterlockedDecrement(&_size);
+		if (localSize < 0)
+		{
+			InterlockedIncrement(&_size);
+			return -1;
+		}
+
+
+
 
 		myTID = GetCurrentThreadId();
 
@@ -128,33 +151,41 @@ public:
 		while (1)
 		{
 			localHead = _head;
-			nextNode = localHead->next;
-			retval = nextNode->_data;
+			localHeadAddress =(Node*)((ULONG_PTR)_head & MASKING_VALUE17BIT);
+			nextNode = localHeadAddress->_next;
 
-			if (InterlockedCompareExchange(&_head, nextNode, localHead) == localHead)
+			if (nextNode == (Node*)nullptr || nextNode == (Node*)NEWNEXT_VALUE)
+				continue;
+
+
+			nextNodeAddress = (Node*)((ULONG_PTR)nextNode & MASKING_VALUE17BIT);
+			retval = nextNodeAddress->_data;
+
+			if (InterlockedCompareExchangePointer((PVOID*) & _head, nextNode, localHead) == localHead)
 			{
-				localSeqNum = InterlockedIncrement(&g_seqNum);
-				logArr[mySeqNum].seqNum = localSeqNum;
-				logArr[mySeqNum].TID = myTID;
-				logArr[mySeqNum].funcType = DEQUEUE;
-				logArr[mySeqNum].threadNext = (ULONG_PTR)nextNode;
-				logArr[mySeqNum].nodeNext = (ULONG_PTR)realTopAdd->_next;
-				logArr[mySeqNum].myAddress = (ULONG_PTR)localTop;
-				logArr[mySeqNum].createCount = realTopAdd->_createCount;
-				logArr[mySeqNum].deleteCount = ++(realTopAdd->_deleteCount);
+
+				//*
+				localSeqNum = InterlockedIncrement(&g_SeqNum);
+				logArr[localSeqNum].seqNum = localSeqNum;
+				logArr[localSeqNum].TID = myTID;
+				logArr[localSeqNum].funcType = DEQUEUE;
+				logArr[localSeqNum].threadNext = (ULONG_PTR)nextNode;
+				logArr[localSeqNum].nodeNext = (ULONG_PTR)localHeadAddress->_next;
+				logArr[localSeqNum].myAddress = (ULONG_PTR)localHead;
+			
 
 
+				//*/
 
 
-				_mPool.Delete(localHead);
+				_mPool.Delete(localHeadAddress);
 				break;
 			}
 		}
 
-
+		return retval;
 	}
 
-
-
-
 };
+
+void WriteAllLogData();

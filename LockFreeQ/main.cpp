@@ -1,3 +1,5 @@
+#pragma comment(lib, "winmm.lib")
+
 #include "LFreeQ.h"
 #include "CrashDump.h"
 #include <process.h>
