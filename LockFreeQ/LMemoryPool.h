@@ -3,6 +3,7 @@
 
 #define LOG_MAXNUM 50'000'000
 #define MASKING_VALUE17BIT 0x00007fffffffffff
+#define RETURN_NEXTVALUE 0x0f0f0f0f0f0f0f0f
 
 
 template <typename T>
@@ -18,7 +19,8 @@ class LMemoryPool
 	};
 
 	Node* _top;
-	//LONG _size;
+	LONG _msize;
+	LONG _madeCount;
 	unsigned long long _count;
 
 
@@ -26,13 +28,11 @@ public:
 
 	LMemoryPool()
 	{
-		_top = nullptr;
-		//_size = 0;
+		_top = (Node*)RETURN_NEXTVALUE;
+		_msize = 0;
+		_madeCount = 0;
 		_count = 0;
-
 	}
-
-
 
 	void Delete(void* pNode) //스택의 push동작
 	{
@@ -55,7 +55,7 @@ public:
 
 			if (InterlockedCompareExchangePointer((PVOID*)&_top, exchangeNode, localTop) == localTop)
 			{
-				//	InterlockedIncrement(&_size);
+				InterlockedIncrement(&_msize);
 				break;
 			}
 
@@ -74,10 +74,11 @@ public:
 
 
 			localTop = _top;
-			if (localTop == nullptr)
+			if (localTop == (Node*)RETURN_NEXTVALUE)
 			{
 				//새로 할당해서 주고 return
 				Node* newNode = new Node;
+				_InterlockedIncrement(&_madeCount);
 				return (void*)newNode;
 			}
 
@@ -86,11 +87,11 @@ public:
 
 			Node* nextNode = realTopAdd->_next;
 
+
 			if (InterlockedCompareExchangePointer((PVOID*)&_top, nextNode, localTop) == localTop)
 			{
 				retNode = (Node*)((ULONG_PTR)localTop & MASKING_VALUE17BIT);
-
-				//InterlockedDecrement(&_size);
+				InterlockedDecrement(&_msize);
 
 				return (void*)retNode;
 				break;

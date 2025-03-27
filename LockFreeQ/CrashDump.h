@@ -109,8 +109,10 @@ namespace procademy
 				wprintf(L"CrashDump Save Finish!");
 			}
 
+#ifdef __LOGDEBUG__
 			//여기서 로그 맵에 있는 모든 데이터 쓰기 작업 실행
 			WriteAllLogData(); //여기에서 예외가 발생하고 있나본데 ?
+#endif
 
 			return EXCEPTION_EXECUTE_HANDLER;
 		}

@@ -3,20 +3,33 @@
 #include "LFreeQ.h"
 #include "CrashDump.h"
 #include <process.h>
+#include <conio.h>
 
-#define LOOPCOUNT 500000
+#define LOOPCOUNT 5000000
 #define THREADCOUNT 10
+
+HANDLE g_event;
 
 LFreeQ<int> g_stack;
 HANDLE hArr[THREADCOUNT];
 
 UINT ThreadFunc(void*)
 {
-
-	for (int i = 0; i < LOOPCOUNT; i++)
+	int i = 0;
+	while(1)
 	{
-		g_stack.Enqueue(i);
+		g_stack.Enqueue(i++);
+		g_stack.Enqueue(i++);
+		g_stack.Enqueue(i++);
 		g_stack.Dequeue();
+		g_stack.Dequeue();
+		g_stack.Dequeue();
+
+		DWORD retval = WaitForSingleObject(g_event, 0);
+		if (retval == WAIT_OBJECT_0)
+		{
+			break;
+		}
 	}
 
 
@@ -30,7 +43,7 @@ int main()
 	DWORD endTime;
 	DWORD result;
 	timeBeginPeriod(1);
-
+	g_event = CreateEvent(NULL, true, false, NULL);
 
 	procademy::CCrashDump dump;
 
@@ -50,6 +63,21 @@ int main()
 			__debugbreak();
 
 		ResumeThread(hArr[i]);
+	}
+
+	while (1)
+	{
+		if (_kbhit())
+		{
+			char c;
+			c = _getch();
+
+			if (c == 'q' || c == 's')
+			{
+				SetEvent(g_event);
+				break;
+			}
+		}
 	}
 
 	WaitForMultipleObjects(THREADCOUNT, hArr, true, INFINITE);
