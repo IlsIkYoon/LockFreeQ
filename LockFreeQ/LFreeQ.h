@@ -52,7 +52,6 @@ class LFreeQ
 	{
 		T _data;
 		Node* _next;
-
 	};
 
 	Node* _head;
@@ -80,9 +79,6 @@ public:
 #endif
 	}
 
-
-
-
 	void Enqueue(T pData)
 	{
 		Node* localTail;
@@ -108,8 +104,6 @@ public:
 
 		exchangeNode = (Node*)((ULONG_PTR)newNode | (localBitCount << BIT_OR_VALUE)); //상위 17비트는 0일 거라는 가정 하에 진행
 
-
-
 		while (1)
 		{
 			CAS1Success = false;
@@ -119,7 +113,9 @@ public:
 			localTailAddress = (Node*)((ULONG_PTR)localTail & MASKING_VALUE17BIT);
 
 			if (localTailAddress == newNode)
+			{
 				__debugbreak();
+			}
 
 			nextNode = localTailAddress->_next;
 
@@ -139,7 +135,6 @@ public:
 				}
 
 				continue;
-			
 			}
 			
 			if (InterlockedCompareExchangePointer((PVOID*)&localTailAddress->_next, exchangeNode, nullptr) == nullptr)
@@ -174,11 +169,9 @@ public:
 				}
 #endif
 				InterlockedIncrement(&_size);
-
 				break;
 			}
 		}
-
 	}
 
 	T Dequeue()
@@ -201,12 +194,7 @@ public:
 			return -1;
 		}
 
-
-
-
 		myTID = GetCurrentThreadId();
-
-
 
 		while (1)
 		{
@@ -219,7 +207,9 @@ public:
 			nextNode = localHeadAddress->_next;
 
 			if (nextNode == (Node*)nullptr || nextNode == (Node*)RETURN_NEXTVALUE)
+			{
 				continue;
+			}
 
 			if (localTailAddress->_next != nullptr)
 			{
@@ -238,8 +228,6 @@ public:
 				continue;
 			}
 			
-
-
 			nextNodeAddress = (Node*)((ULONG_PTR)nextNode & MASKING_VALUE17BIT);
 			retval = nextNodeAddress->_data;
 
@@ -257,8 +245,7 @@ public:
 				logArr[localSeqNum].DeleteNodeAddress = (ULONG_PTR)localHead;
 				logArr[localSeqNum].CAS1Success = CAS1Success;
 #endif
-				
-
+			
 				if (InterlockedCompareExchangePointer((PVOID*)&localHeadAddress->_next, nullptr, nullptr) == nullptr)
 				{
 					__debugbreak();
@@ -269,10 +256,8 @@ public:
 				break;
 			}
 		}
-
 		return retval;
 	}
-
 };
 
 #ifdef __LOGDEBUG__
